@@ -86,7 +86,7 @@ def get_maxOrders(symbol, firstEntry, lastEntry, tradeAmount, pricePrecision, qu
         elif firstOrderQuantity < firstEntryMinQty:
             return a - 1
 
-    return 195
+    return maxNumOrders
 
 def get_symbolInfo(symbol, firstEntry, lastEntry, tradeAmount, increaseAmount):
 
