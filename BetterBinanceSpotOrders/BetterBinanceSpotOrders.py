@@ -1,18 +1,19 @@
-import requests
-import math
-
-import hmac
-import time
 import hashlib
+import hmac
+import math
+import requests
+import time
 from urllib.parse import urlencode, quote
 
-from Keys import KEY, SECRET
+from Keys import KEY, SECRET 
 
-BASE_URL = 'https://api.binance.com'
+BASE_URL = 'https://api.binance.com' # base endpoint for Binance Spot
 
+# get signature string
 def get_signature(query_string):
     return hmac.new(SECRET.encode('utf-8'), query_string.encode('utf-8'), hashlib.sha256).hexdigest()
 
+# get local timestamp
 def get_timestamp():
     return int(time.time() * 1000)
 
@@ -29,7 +30,7 @@ def dispatch_request(http_method):
         'POST': session.post,
     }.get(http_method, 'GET')
 
-#used for sending signed data request
+# used for sending signed data request
 def send_signed_request(http_method, url_path, payload={}):
     query_string = urlencode(payload)
     query_string = query_string.replace('%27', '%22')
@@ -55,9 +56,11 @@ def send_public_request(url_path, payload={}):
     response = dispatch_request('GET')(url=url)
     return response.json()
 
+# round down a number to specified decimal places
 def roundDown(number, places):
     return math.floor(number * (10 ** places)) / (10 ** places)
 
+# round up a number to specified decimal places
 def roundUp(number, places):
     return math.ceil(number * (10 ** places)) / (10 ** places)
 
@@ -65,22 +68,20 @@ def get_maxOrders(symbol, firstEntry, lastEntry, tradeAmount, pricePrecision, qu
     denominator = []
 
     for a in range(2, maxNumOrders + 1):
-        increase_amount = ((((1 + (increaseAmount / 100))**9)**(1/(a-1))) - 1)*100
+        equivalentPercentIncrease = ((((1 + (increaseAmount / 100))**9)**(1/(a-1))) - 1)*100 # a >= 2, or else undefined, therefore minimum of 2 valid orders
 
         for b in range(a):
-            denominator.append((1 + (increase_amount / 100)) ** b)
+            denominator.append((1 + (equivalentPercentIncrease / 100)) ** b)
 
         firstOrderQuantity = roundDown((tradeAmount / sum(denominator)) / firstEntry, quantityPrecision)
         firstOrderSize = roundDown(firstOrderQuantity * firstEntry, pricePrecision)
 
-        #print("If {} orders are placed, then first order size will be {} USDT and first order quantity will be {} {}".format(a, firstOrderSize, firstOrderQuantity, symbol.split("USDT")[0]))
-        #print(increase_amount)
         denominator.clear()
 
-        if (firstOrderQuantity == 0) and (a == 2):
+        if ((firstOrderQuantity == 0) and (a == 2)):
             return 0
 
-        elif (firstOrderQuantity < firstEntryMinQty) and (a == 2):
+        elif ((firstOrderQuantity < firstEntryMinQty) and (a == 2)):
             return 0
 
         elif firstOrderQuantity < firstEntryMinQty:
@@ -88,57 +89,56 @@ def get_maxOrders(symbol, firstEntry, lastEntry, tradeAmount, pricePrecision, qu
 
     return maxNumOrders
 
+# get dictionary of important symbol information required for calculating orders
 def get_symbolInfo(symbol, firstEntry, lastEntry, tradeAmount, increaseAmount):
 
-    symbols = send_public_request('/api/v3/exchangeInfo')["symbols"]
+    symbols = send_public_request('/api/v3/exchangeInfo')["symbols"] 
 
-    #loop through list and check key for match
     for a in range(len(symbols)):
 
-        #if the symbol is in the list with the key then assign values
         if symbol == symbols[a]["symbol"]:
-            pricePrecision = symbols[a]["quotePrecision"]
             quantityPrecision = symbols[a]["baseAssetPrecision"]
-            MIN_NOTIONAL = float(symbols[a]["filters"][3]["minNotional"])
+            pricePrecision = symbols[a]["quotePrecision"]
             minQty = float(symbols[a]["filters"][2]["minQty"])
-            firstEntryMinQty = max(roundUp(MIN_NOTIONAL / firstEntry, quantityPrecision), minQty)
-            firstEntryMinSize = roundDown(firstEntry * firstEntryMinQty, pricePrecision)
+            minNotional = float(symbols[a]["filters"][3]["minNotional"])
             maxNumOrders = symbols[a]["filters"][6]["maxNumOrders"] - symbols[a]["filters"][7]["maxNumAlgoOrders"]
+            firstEntryMinQty = max(roundUp(minNotional / firstEntry, quantityPrecision), minQty)
+            firstEntryMinSize = roundDown(firstEntry * firstEntryMinQty, pricePrecision)
             maxOrders = get_maxOrders(symbol, firstEntry, lastEntry, tradeAmount, pricePrecision, quantityPrecision, firstEntryMinQty, increaseAmount, maxNumOrders)
             
             break
 
-        #otherwise make it "n/a"
         else:
-            pricePrecision = "n/a"
             quantityPrecision = "n/a"
-            MIN_NOTIONAL = "n/a"
+            pricePrecision = "n/a"
             minQty = "n/a"
+            minNotional = "n/a"
+            maxNumOrders = 0
             firstEntryMinQty = "n/a"
             firstEntryMinSize = "n/a"
             maxOrders = 0
-            maxNumOrders = 0
+            
             
     return {"pricePrecision": pricePrecision, "quantityPrecision": quantityPrecision, "firstEntryPrice": firstEntry, "firstEntryMinQty": firstEntryMinQty, "firstEntryMinSize": firstEntryMinSize, "maxOrders": maxOrders, "maxNumOrders": maxNumOrders}
 
+# Place multiple buy orders within a range, if increaseAmount is 0 then all orders will be of the same size. 
+# The increaseAmount is a percentage that you want to increase each order by if you placed 10 orders. It is then adjusted for the actual number of orders calculated from get_maxOrders
 def place_buyOrders(symbol, firstEntry, lastEntry, tradeAmount, increaseAmount):
     
-    data = get_symbolInfo(symbol, firstEntry, lastEntry, tradeAmount, increaseAmount)
+    symbolInfo = get_symbolInfo(symbol, firstEntry, lastEntry, tradeAmount, increaseAmount)
 
-    pricePrecision = data["pricePrecision"]
-    quantityPrecision = data["quantityPrecision"]
-    firstEntryMinQty = data["firstEntryMinQty"]
-    maxNumOrders = data["maxNumOrders"]
-
+    pricePrecision = symbolInfo["pricePrecision"]
+    quantityPrecision = symbolInfo["quantityPrecision"]
+    firstEntryMinQty = symbolInfo["firstEntryMinQty"]
+    maxNumOrders = symbolInfo["maxNumOrders"]
     numberOfOrders = get_maxOrders(symbol, firstEntry, lastEntry, tradeAmount, pricePrecision, quantityPrecision, firstEntryMinQty, increaseAmount, maxNumOrders)
-
-    percent = - 100 * (lastEntry / firstEntry) ** (1 / (numberOfOrders - 1)) + 100
-    percentIncrease = ((((1 + (increaseAmount / 100)) ** 9) ** (1 / (numberOfOrders - 1))) - 1) * 100
+    percentBetweenEntries = - 100 * (lastEntry / firstEntry) ** (1 / (numberOfOrders - 1)) + 100
+    equivalentPercentIncrease = ((((1 + (increaseAmount / 100)) ** 9) ** (1 / (numberOfOrders - 1))) - 1) * 100
 
     denominator = []
 
-    for i in range(numberOfOrders):
-        denominator.append((1 + (percentIncrease / 100)) ** i)
+    for a in range(numberOfOrders):
+        denominator.append((1 + (equivalentPercentIncrease / 100)) ** a)
 
     firstOrderQuantity = roundDown((tradeAmount / sum(denominator)) / firstEntry, quantityPrecision)
     firstOrderSize = round(firstOrderQuantity * firstEntry, pricePrecision)
@@ -151,35 +151,34 @@ def place_buyOrders(symbol, firstEntry, lastEntry, tradeAmount, increaseAmount):
     orderSizes = [firstOrderSize]
     thisOrderSize = firstOrderSize
 
-    for j in range(numberOfOrders - 1):
-        entryPrices.append(round(thisEntryPrice * (1 - (percent / 100)), pricePrecision))      
-        orderQuantities.append(roundDown((thisOrderSize * (1 + (percentIncrease / 100))) / (thisEntryPrice * (1 - (percent / 100))), quantityPrecision))
-        orderSizes.append(round(entryPrices[j + 1] * orderQuantities[j + 1], pricePrecision))
-
-        thisEntryPrice = thisEntryPrice * (1 - (percent / 100))
-        thisOrderSize = thisOrderSize * (1 + (percentIncrease / 100))
+    for b in range(numberOfOrders - 1):
+        entryPrices.append(round(thisEntryPrice * (1 - (percentBetweenEntries / 100)), pricePrecision))      
+        orderQuantities.append(roundDown((thisOrderSize * (1 + (equivalentPercentIncrease / 100))) / (thisEntryPrice * (1 - (percentBetweenEntries / 100))), quantityPrecision))
+        orderSizes.append(round(entryPrices[b + 1] * orderQuantities[b + 1], pricePrecision))
+        thisEntryPrice = thisEntryPrice * (1 - (percentBetweenEntries / 100))
+        thisOrderSize = thisOrderSize * (1 + (equivalentPercentIncrease / 100))
 
     print("{} orders to be placed are".format(numberOfOrders))
 
-    for k in range(numberOfOrders):
+    for c in range(numberOfOrders):
         params = {
             "symbol": symbol,
             "side": "BUY",
             "type": "LIMIT",
             "timeInForce": "GTC",
-            "quantity": orderQuantities[k],
-            "price": str(entryPrices[k]),
+            "quantity": orderQuantities[c],
+            "price": str(entryPrices[c]),
         }
 
         print(params)
-        #response = send_signed_request('POST', 'api/v3/order', params)
-        #print(response)
+        send_signed_request('POST', 'api/v3/order', params)
 
     print("Total order size is {} USDT".format(roundDown(sum(orderSizes), pricePrecision))) #total trade size
 
     print("Average entry price is {}, if all orders are filled".format(roundDown(sum(orderSizes)/sum(orderQuantities), pricePrecision))) #average entry if all orders are filled
 
-def cancelOrders(symbol):
+# cancel orders for a given symbol
+def cancel_Orders(symbol):
     send_signed_request('DELETE', '/api/v3/openOrders', {"symbol": symbol})
 
-place_buyOrders("ADAUSDT", 1.2, 1, 1235, 0)
+place_buyOrders("ADAUSDT", 1.2, 1, 1000, 0)
