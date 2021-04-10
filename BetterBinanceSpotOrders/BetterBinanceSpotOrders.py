@@ -181,4 +181,8 @@ def place_buyOrders(symbol, firstEntry, lastEntry, tradeAmount, increaseAmount):
 def cancel_Orders(symbol):
     send_signed_request('DELETE', '/api/v3/openOrders', {"symbol": symbol})
 
-place_buyOrders("ADAUSDT", 1.2, 1, 1000, 0)
+# example order for same order sizes
+#place_buyOrders("ADAUSDT", 1.2, 1, 1000, 0)
+
+# example order for increasing order sizes
+#place_buyOrders("ADAUSDT", 1.2, 1, 1000, 50)
