@@ -1,6 +1,8 @@
 # BetterBinanceSpotOrders
 Place multiple buy orders in a range of the same order size or increasing order size for Binance Spot
 
+![Example Orders](/BetterBinanceSpotOrders.png)
+
 ## Prerequisites
 BetterBinanceSpotOrders needs the following python3 modules:
 ```
@@ -11,8 +13,6 @@ requests
 time
 urllib.parse
 ```
-
-![Example Orders](/BetterBinanceSpotOrders.png)
 
 ## Place Buy Orders (Same Order Size)
 ```python
