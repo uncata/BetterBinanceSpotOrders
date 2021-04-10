@@ -12,6 +12,8 @@ time
 urllib.parse
 ```
 
+![Example Orders](/BetterBinanceSpotOrders.png)
+
 ## Place Buy Orders (Same Order Size)
 ```python
 place_buyOrders("ADAUSDT", 1.2, 1, 1000, 0)
